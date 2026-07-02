@@ -1,29 +1,84 @@
 # fogpipe/actions
 
-Public GitHub Actions for deploying to **Fogpipe Cloud** from CI using **OIDC
+GitHub Actions for deploying to **Fogpipe Cloud** from CI using **OIDC
 workload-identity federation** — no long-lived secrets stored in your repository.
 
-| Action | Purpose |
+Your workflow proves its identity with a GitHub OIDC token, exchanges it for a
+short-lived, project-scoped credential, pushes its image to its own slice of the
+registry, and rolls out the app.
+
+## Actions
+
+| Action | What it does |
 | --- | --- |
-| `fogpipe/actions/cloud-auth` | Exchange the job's GitHub OIDC token for a short-lived `FPCLOUD_API_KEY`. |
-| `fogpipe/actions/registry-login` | Docker-login to the Fogpipe registry with a **project-scoped** credential (push only to `tenants/<project>/**`). |
-| `fogpipe/actions/deploy` | Create or update a Fogpipe app with a new image. |
+| [`cloud-auth`](./cloud-auth) | Exchange the job's GitHub OIDC token for a short-lived `FPCLOUD_API_KEY`. |
+| [`registry-login`](./registry-login) | `docker login` with a **project-scoped** credential — push only to `tenants/<project>/**`. |
+| [`deploy`](./deploy) | Create or update a Fogpipe app with a new image. |
+
+## Usage
 
 ```yaml
-permissions: { id-token: write, contents: read }
+name: deploy
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write   # required — lets the job mint a GitHub OIDC token
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
       - uses: fogpipe/actions/cloud-auth@main
-        with: { service-account: deployer@myproject.cloud.fogpipe.com }
+        with:
+          service-account: deployer@myproject.cloud.fogpipe.com
+
       - id: registry
         uses: fogpipe/actions/registry-login@main
-      - run: |
-          IMG="${{ steps.registry.outputs.repository }}/app:${{ github.sha }}"
-          docker build -t "$IMG" . && docker push "$IMG"
+
+      - name: Build & push
+        run: |
+          IMG="${{ steps.registry.outputs.repository }}/myapp:${{ github.sha }}"
+          docker build -t "$IMG" .
+          docker push "$IMG"
           echo "IMAGE=$IMG" >> "$GITHUB_ENV"
+
       - uses: fogpipe/actions/deploy@main
-        with: { project: myproject, app: app, image: "${{ env.IMAGE }}" }
+        with:
+          project: myproject
+          app: myapp
+          image: ${{ env.IMAGE }}
+          port: "8080"
+          ingress: all
 ```
+
+## One-time setup
+
+Create a service account, grant it a role on your project, and trust your repo:
+
+```bash
+fpcloud --project myproject sa create deployer
+
+fpcloud --project myproject iam set \
+  --member serviceAccount:deployer@myproject.cloud.fogpipe.com --role editor
+
+fpcloud --project myproject federation add \
+  --repo myorg/myrepo \
+  --service-account deployer@myproject.cloud.fogpipe.com
+```
+
+Nothing is copied into GitHub. Scope tighter with `--ref refs/tags/*` to deploy
+only on tags, and revoke a repo instantly with `fpcloud federation remove <id>`.
+
+## Security
+
+Each repo can only act within its own project and can only push to its own
+`tenants/<project>/**` prefix — a leaked credential can't touch the platform's
+images or another tenant's repositories. Credentials are short-lived and minted
+per run; there is no stored key to rotate or leak.
+
+Full guide: [deploy-from-github](https://github.com/fogpipe/cloud/blob/main/docs/deploy-from-github.md).
