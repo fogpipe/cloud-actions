@@ -66,7 +66,7 @@ fpcloud --project myproject sa create deployer
 fpcloud --project myproject iam set \
   --member serviceAccount:deployer@myproject.cloud.fogpipe.com --role editor
 
-fpcloud --project myproject federation add \
+fpcloud --project myproject federation github add \
   --repo myorg/myrepo \
   --service-account deployer@myproject.cloud.fogpipe.com
 ```
