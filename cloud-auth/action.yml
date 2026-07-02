@@ -1,0 +1,78 @@
+name: "Fogpipe Cloud auth"
+description: >-
+  Authenticate to Fogpipe Cloud from GitHub Actions using OIDC workload-identity
+  federation — no stored API key. Exchanges the job's GitHub OIDC token for a
+  short-lived fpcloud credential and exports it as FPCLOUD_API_KEY for subsequent
+  fpcloud / terraform / tofu steps.
+
+# Requires the calling job to grant:  permissions: { id-token: write }
+# Seed for the public fogpipe/cloud-auth repo; our own pipeline consumes it via
+#   uses: ./.github/actions/cloud-auth
+
+inputs:
+  service-account:
+    description: "Service account to impersonate (must be allowed by a trust binding)."
+    required: true
+  audience:
+    description: "OIDC audience to request (must match the trust binding)."
+    required: false
+    default: "fpcloud"
+  api-url:
+    description: "Fogpipe API base URL."
+    required: false
+    default: "https://api.cloud.fogpipe.com"
+
+outputs:
+  token:
+    description: "The short-lived fpcloud access token (also exported as FPCLOUD_API_KEY)."
+    value: ${{ steps.exchange.outputs.token }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: exchange
+      shell: bash
+      env:
+        FPCLOUD_SA: ${{ inputs.service-account }}
+        FPCLOUD_AUDIENCE: ${{ inputs.audience }}
+        FPCLOUD_API_URL: ${{ inputs.api-url }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+          echo "::error::No OIDC token available. Add 'permissions: { id-token: write }' to the job." >&2
+          exit 1
+        fi
+
+        # 1. Mint the GitHub Actions OIDC token for our audience.
+        oidc_token="$(curl -sS \
+          -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FPCLOUD_AUDIENCE}" \
+          | jq -r '.value')"
+        if [ -z "${oidc_token}" ] || [ "${oidc_token}" = "null" ]; then
+          echo "::error::Failed to obtain a GitHub OIDC token." >&2
+          exit 1
+        fi
+
+        # 2. Exchange it at the fpcloud token endpoint (RFC 8693 shape).
+        response="$(curl -sS -X POST "${FPCLOUD_API_URL%/}/api/v1/auth/token" \
+          -H "Content-Type: application/json" \
+          -d "$(jq -n \
+                --arg t "${oidc_token}" \
+                --arg a "${FPCLOUD_SA}" \
+                '{grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+                  subject_token:$t,
+                  subject_token_type:"urn:ietf:params:oauth:token-type:jwt",
+                  audience:$a}')")"
+
+        token="$(printf '%s' "${response}" | jq -r '.access_token // empty')"
+        if [ -z "${token}" ]; then
+          echo "::error::Token exchange failed: $(printf '%s' "${response}" | jq -r '.error // .message // "unknown error"')" >&2
+          exit 1
+        fi
+
+        # 3. Mask + export so later steps are authenticated; never print the token.
+        echo "::add-mask::${token}"
+        echo "FPCLOUD_API_KEY=${token}" >> "${GITHUB_ENV}"
+        echo "token=${token}" >> "${GITHUB_OUTPUT}"
+        echo "Authenticated to Fogpipe Cloud as ${FPCLOUD_SA}."

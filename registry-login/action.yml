@@ -1,0 +1,44 @@
+name: "Fogpipe registry login"
+description: >-
+  Docker-login to the Fogpipe container registry using a Fogpipe API key
+  (FPCLOUD_API_KEY, from fogpipe/actions/cloud-auth). Fetches a short-lived,
+  project-scoped credential from the control plane — no registry password is ever
+  stored, and the credential can only push to your own tenants/<project>/**.
+
+# Run fogpipe/actions/cloud-auth first (it exports FPCLOUD_API_KEY).
+inputs:
+  api-url:
+    description: "Fogpipe API base URL."
+    required: false
+    default: "https://api.cloud.fogpipe.com"
+outputs:
+  repository:
+    description: "Your registry repository prefix, e.g. registry.cloud.fogpipe.com/tenants/<project>."
+    value: ${{ steps.login.outputs.repository }}
+runs:
+  using: "composite"
+  steps:
+    - id: login
+      shell: bash
+      env:
+        FPCLOUD_API_URL: ${{ inputs.api-url }}
+      run: |
+        set -euo pipefail
+        if [ -z "${FPCLOUD_API_KEY:-}" ]; then
+          echo "::error::FPCLOUD_API_KEY is not set — run fogpipe/actions/cloud-auth first." >&2
+          exit 1
+        fi
+        resp="$(curl -sS -H "Authorization: Bearer ${FPCLOUD_API_KEY}" \
+          "${FPCLOUD_API_URL%/}/api/v1/registry/credentials")"
+        server="$(printf '%s' "${resp}" | jq -r '.server // empty')"
+        user="$(printf '%s' "${resp}" | jq -r '.username // empty')"
+        pass="$(printf '%s' "${resp}" | jq -r '.password // empty')"
+        repo="$(printf '%s' "${resp}" | jq -r '.repository // empty')"
+        if [ -z "${server}" ] || [ -z "${pass}" ]; then
+          echo "::error::Failed to fetch registry credentials: $(printf '%s' "${resp}" | jq -r '.error // .message // "unknown"')" >&2
+          exit 1
+        fi
+        echo "::add-mask::${pass}"
+        printf '%s' "${pass}" | docker login "${server}" --username "${user}" --password-stdin
+        echo "repository=${repo}" >> "${GITHUB_OUTPUT}"
+        echo "Logged in to ${server} as ${user} (scoped to ${repo})."

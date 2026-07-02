@@ -1,0 +1,73 @@
+name: "Fogpipe deploy"
+description: >-
+  Create or update a Fogpipe app with a new image, using a Fogpipe API key
+  (FPCLOUD_API_KEY, from fogpipe/actions/cloud-auth). First run creates the app;
+  later runs roll out the new image.
+
+# Run fogpipe/actions/cloud-auth first (it exports FPCLOUD_API_KEY).
+inputs:
+  project:
+    description: "Project name."
+    required: true
+  app:
+    description: "App name."
+    required: true
+  image:
+    description: "Fully-qualified image ref to deploy."
+    required: true
+  port:
+    description: "Container port the app listens on."
+    required: false
+    default: "8080"
+  ingress:
+    description: "Ingress mode: all (public) or internal."
+    required: false
+    default: "all"
+  api-url:
+    description: "Fogpipe API base URL."
+    required: false
+    default: "https://api.cloud.fogpipe.com"
+outputs:
+  url:
+    description: "The app's URL, if assigned."
+    value: ${{ steps.deploy.outputs.url }}
+runs:
+  using: "composite"
+  steps:
+    - id: deploy
+      shell: bash
+      env:
+        FPCLOUD_API_URL: ${{ inputs.api-url }}
+        PROJECT: ${{ inputs.project }}
+        APP: ${{ inputs.app }}
+        IMAGE: ${{ inputs.image }}
+        PORT: ${{ inputs.port }}
+        INGRESS: ${{ inputs.ingress }}
+      run: |
+        set -euo pipefail
+        if [ -z "${FPCLOUD_API_KEY:-}" ]; then
+          echo "::error::FPCLOUD_API_KEY is not set — run fogpipe/actions/cloud-auth first." >&2
+          exit 1
+        fi
+        base="${FPCLOUD_API_URL%/}"
+        auth=(-H "Authorization: Bearer ${FPCLOUD_API_KEY}" -H "Content-Type: application/json")
+        apps="$(curl -sS "${auth[@]}" "${base}/api/v1/projects/${PROJECT}/apps")"
+        id="$(printf '%s' "${apps}" | jq -r --arg n "${APP}" '.[]? | select(.name==$n) | .id' | head -1)"
+        if [ -z "${id}" ] || [ "${id}" = "null" ]; then
+          echo "Creating app ${APP} in ${PROJECT}…"
+          resp="$(curl -sS "${auth[@]}" -X POST "${base}/api/v1/projects/${PROJECT}/apps" \
+            -d "$(jq -n --arg n "${APP}" --arg i "${IMAGE}" --argjson p "${PORT}" --arg ing "${INGRESS}" \
+                  '{name:$n,image:$i,port:$p,ingress:$ing,tier:"dedicated"}')")"
+        else
+          echo "Deploying new image to ${APP} (${id})…"
+          resp="$(curl -sS "${auth[@]}" -X POST "${base}/api/v1/apps/${id}/deploy" \
+            -d "$(jq -n --arg i "${IMAGE}" '{image:$i}')")"
+        fi
+        if printf '%s' "${resp}" | jq -e '.id' >/dev/null 2>&1; then
+          url="$(printf '%s' "${resp}" | jq -r '.url // empty')"
+          echo "url=${url}" >> "${GITHUB_OUTPUT}"
+          echo "OK: $(printf '%s' "${resp}" | jq -c '{name,status,url}')"
+        else
+          echo "::error::Deploy failed: $(printf '%s' "${resp}" | jq -r '.error // .message // .' 2>/dev/null || printf '%s' "${resp}")" >&2
+          exit 1
+        fi
