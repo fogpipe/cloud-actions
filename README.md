@@ -13,6 +13,7 @@ registry, and rolls out the app.
 | --- | --- |
 | [`cloud-auth`](./cloud-auth) | Exchange the job's GitHub OIDC token for a short-lived `FPCLOUD_API_KEY`. |
 | [`registry-login`](./registry-login) | `docker login` with a **project-scoped** credential — push only to `tenants/<project>/**`. |
+| [`config`](./config) | Set app config (ConfigMap) + secrets (Secret) for the project's app. |
 | [`deploy`](./deploy) | Create or update a Fogpipe app with a new image. |
 
 ## Usage
@@ -46,6 +47,16 @@ jobs:
           docker build -t "$IMG" .
           docker push "$IMG"
           echo "IMAGE=$IMG" >> "$GITHUB_ENV"
+
+      # optional: set config + secrets before deploy so new pods boot with them
+      - uses: fogpipe/actions/config@main
+        with:
+          project: myproject
+          app: myapp
+          env: |
+            LOG_LEVEL=info
+          secret: |
+            API_TOKEN=${{ secrets.API_TOKEN }}
 
       - uses: fogpipe/actions/deploy@main
         with:
