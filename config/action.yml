@@ -1,0 +1,93 @@
+name: "Fogpipe Cloud config"
+description: >-
+  Set app config and secrets on Fogpipe Cloud from GitHub Actions. Reuses the
+  short-lived FPCLOUD_API_KEY minted by fogpipe/actions/cloud-auth (no stored
+  key). Plain values are stored in a ConfigMap, secret values (encrypted at rest)
+  in a Secret; both are injected into the app via envFrom and rolled out.
+
+# Requires the calling job to grant:  permissions: { id-token: write }
+# and a prior `uses: fogpipe/actions/cloud-auth` step to export FPCLOUD_API_KEY.
+# Seed for the public fogpipe/actions/config action; our own pipeline consumes it
+# via `uses: ./.github/actions/config`.
+
+inputs:
+  project:
+    description: "Project name (or id) the app belongs to."
+    required: true
+  app:
+    description: "App name."
+    required: true
+  env:
+    description: "Plain config as newline-separated KEY=VALUE pairs."
+    required: false
+    default: ""
+  secret:
+    description: "Secret config as newline-separated KEY=VALUE pairs (values are masked)."
+    required: false
+    default: ""
+  api-url:
+    description: "Fogpipe API base URL."
+    required: false
+    default: "https://api.cloud.fogpipe.com"
+
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      env:
+        FPCLOUD_PROJECT: ${{ inputs.project }}
+        FPCLOUD_APP: ${{ inputs.app }}
+        FPCLOUD_ENV: ${{ inputs.env }}
+        FPCLOUD_SECRET: ${{ inputs.secret }}
+        FPCLOUD_API_URL: ${{ inputs.api-url }}
+      run: |
+        set -euo pipefail
+        : "${FPCLOUD_API_KEY:?cloud-auth must run first to export FPCLOUD_API_KEY}"
+
+        base="${FPCLOUD_API_URL%/}"
+        auth="Authorization: Bearer ${FPCLOUD_API_KEY}"
+
+        # Resolve the app name -> id within the project (config is addressed by id).
+        apps="$(curl -sS -H "${auth}" "${base}/api/v1/projects/${FPCLOUD_PROJECT}/apps")"
+        app_id="$(printf '%s' "${apps}" | jq -r --arg n "${FPCLOUD_APP}" 'map(select(.name==$n)) | .[0].id // empty')"
+        if [ -z "${app_id}" ]; then
+          echo "::error::app '${FPCLOUD_APP}' not found in project '${FPCLOUD_PROJECT}'." >&2
+          exit 1
+        fi
+
+        set_one() {
+          # $1=key  $2=value  $3=is_secret(true|false)
+          local body code
+          body="$(jq -n --arg k "$1" --arg v "$2" --argjson s "$3" '{key:$k, value:$v, is_secret:$s}')"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H "${auth}" -H "Content-Type: application/json" \
+            -d "${body}" "${base}/api/v1/apps/${app_id}/config")"
+          if [ "${code}" -lt 200 ] || [ "${code}" -ge 300 ]; then
+            echo "::error::failed to set '$1' (HTTP ${code})." >&2
+            exit 1
+          fi
+        }
+
+        apply_block() {
+          # $1=block text  $2=is_secret(true|false)
+          [ -z "$1" ] && return 0
+          local line key value
+          while IFS= read -r line || [ -n "${line}" ]; do
+            case "${line}" in ''|'#'*) continue ;; esac
+            if [ "${line%%=*}" = "${line}" ]; then
+              echo "::error::invalid line (expected KEY=VALUE): ${line}" >&2
+              exit 1
+            fi
+            key="${line%%=*}"
+            value="${line#*=}"
+            key="${key#"${key%%[![:space:]]*}"}"   # ltrim
+            key="${key%"${key##*[![:space:]]}"}"    # rtrim
+            [ "$2" = "true" ] && echo "::add-mask::${value}"
+            set_one "${key}" "${value}" "$2"
+            echo "set ${key} (secret=$2)"
+          done <<< "$1"
+        }
+
+        apply_block "${FPCLOUD_ENV}" false
+        apply_block "${FPCLOUD_SECRET}" true
+        echo "Config applied to app ${FPCLOUD_APP}."
