@@ -1,14 +1,12 @@
 name: "Fogpipe Cloud config"
 description: >-
   Set app config and secrets on Fogpipe Cloud from GitHub Actions. Reuses the
-  short-lived FPCLOUD_API_KEY minted by fogpipe/actions/cloud-auth (no stored
+  short-lived FPCLOUD_API_KEY minted by fogpipe/cloud-actions/auth (no stored
   key). Plain values are stored in a ConfigMap, secret values (encrypted at rest)
   in a Secret; both are injected into the app via envFrom and rolled out.
 
 # Requires the calling job to grant:  permissions: { id-token: write }
-# and a prior `uses: fogpipe/actions/cloud-auth` step to export FPCLOUD_API_KEY.
-# Seed for the public fogpipe/actions/config action; our own pipeline consumes it
-# via `uses: ./.github/actions/config`.
+# and a prior `uses: fogpipe/cloud-actions/auth` step to export FPCLOUD_API_KEY.
 
 inputs:
   project:
@@ -42,7 +40,7 @@ runs:
         FPCLOUD_API_URL: ${{ inputs.api-url }}
       run: |
         set -euo pipefail
-        : "${FPCLOUD_API_KEY:?cloud-auth must run first to export FPCLOUD_API_KEY}"
+        : "${FPCLOUD_API_KEY:?auth must run first to export FPCLOUD_API_KEY}"
 
         base="${FPCLOUD_API_URL%/}"
         auth="Authorization: Bearer ${FPCLOUD_API_KEY}"

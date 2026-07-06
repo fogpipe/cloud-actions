@@ -1,10 +1,10 @@
 name: "Fogpipe deploy"
 description: >-
   Create or update a Fogpipe app with a new image, using a Fogpipe API key
-  (FPCLOUD_API_KEY, from fogpipe/actions/cloud-auth). First run creates the app;
+  (FPCLOUD_API_KEY, from fogpipe/cloud-actions/auth). First run creates the app;
   later runs roll out the new image.
 
-# Run fogpipe/actions/cloud-auth first (it exports FPCLOUD_API_KEY).
+# Run fogpipe/cloud-actions/auth first (it exports FPCLOUD_API_KEY).
 inputs:
   project:
     description: "Project name."
@@ -46,7 +46,7 @@ runs:
       run: |
         set -euo pipefail
         if [ -z "${FPCLOUD_API_KEY:-}" ]; then
-          echo "::error::FPCLOUD_API_KEY is not set — run fogpipe/actions/cloud-auth first." >&2
+          echo "::error::FPCLOUD_API_KEY is not set — run fogpipe/cloud-actions/auth first." >&2
           exit 1
         fi
         base="${FPCLOUD_API_URL%/}"

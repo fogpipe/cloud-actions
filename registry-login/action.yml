@@ -1,11 +1,11 @@
 name: "Fogpipe registry login"
 description: >-
   Docker-login to the Fogpipe container registry using a Fogpipe API key
-  (FPCLOUD_API_KEY, from fogpipe/actions/cloud-auth). Fetches a short-lived,
+  (FPCLOUD_API_KEY, from fogpipe/cloud-actions/auth). Fetches a short-lived,
   project-scoped credential from the control plane — no registry password is ever
   stored, and the credential can only push to your own tenants/<project>/**.
 
-# Run fogpipe/actions/cloud-auth first (it exports FPCLOUD_API_KEY).
+# Run fogpipe/cloud-actions/auth first (it exports FPCLOUD_API_KEY).
 inputs:
   api-url:
     description: "Fogpipe API base URL."
@@ -25,7 +25,7 @@ runs:
       run: |
         set -euo pipefail
         if [ -z "${FPCLOUD_API_KEY:-}" ]; then
-          echo "::error::FPCLOUD_API_KEY is not set — run fogpipe/actions/cloud-auth first." >&2
+          echo "::error::FPCLOUD_API_KEY is not set — run fogpipe/cloud-actions/auth first." >&2
           exit 1
         fi
         resp="$(curl -sS -H "Authorization: Bearer ${FPCLOUD_API_KEY}" \

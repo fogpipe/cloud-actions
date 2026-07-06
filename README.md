@@ -1,4 +1,4 @@
-# fogpipe/actions
+# fogpipe/cloud-actions
 
 GitHub Actions for deploying to **Fogpipe Cloud** from CI using **OIDC
 workload-identity federation** — no long-lived secrets stored in your repository.
@@ -11,7 +11,7 @@ registry, and rolls out the app.
 
 | Action | What it does |
 | --- | --- |
-| [`cloud-auth`](./cloud-auth) | Exchange the job's GitHub OIDC token for a short-lived `FPCLOUD_API_KEY`. |
+| [`auth`](./auth) | Exchange the job's GitHub OIDC token for a short-lived `FPCLOUD_API_KEY`. |
 | [`registry-login`](./registry-login) | `docker login` with a **project-scoped** credential — push only to `tenants/<project>/**`. |
 | [`config`](./config) | Set app config (ConfigMap) + secrets (Secret) for the project's app. |
 | [`deploy`](./deploy) | Create or update a Fogpipe app with a new image. |
@@ -34,12 +34,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: fogpipe/actions/cloud-auth@main
+      - uses: fogpipe/cloud-actions/auth@main
         with:
           service-account: deployer@myproject.cloud.fogpipe.com
 
       - id: registry
-        uses: fogpipe/actions/registry-login@main
+        uses: fogpipe/cloud-actions/registry-login@main
 
       - name: Build & push
         run: |
@@ -49,7 +49,7 @@ jobs:
           echo "IMAGE=$IMG" >> "$GITHUB_ENV"
 
       # optional: set config + secrets before deploy so new pods boot with them
-      - uses: fogpipe/actions/config@main
+      - uses: fogpipe/cloud-actions/config@main
         with:
           project: myproject
           app: myapp
@@ -58,7 +58,7 @@ jobs:
           secret: |
             API_TOKEN=${{ secrets.API_TOKEN }}
 
-      - uses: fogpipe/actions/deploy@main
+      - uses: fogpipe/cloud-actions/deploy@main
         with:
           project: myproject
           app: myapp

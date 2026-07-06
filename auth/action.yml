@@ -6,8 +6,6 @@ description: >-
   fpcloud / terraform / tofu steps.
 
 # Requires the calling job to grant:  permissions: { id-token: write }
-# Seed for the public fogpipe/cloud-auth repo; our own pipeline consumes it via
-#   uses: ./.github/actions/cloud-auth
 
 inputs:
   service-account:
