@@ -91,5 +91,3 @@ Each repo can only act within its own project and can only push to its own
 `tenants/<project>/**` prefix — a leaked credential can't touch the platform's
 images or another tenant's repositories. Credentials are short-lived and minted
 per run; there is no stored key to rotate or leak.
-
-Full guide: [deploy-from-github](https://github.com/fogpipe/cloud/blob/main/docs/deploy-from-github.md).
