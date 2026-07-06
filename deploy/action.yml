@@ -1,6 +1,6 @@
-name: "Fogpipe deploy"
+name: "Fogpipe Cloud deploy"
 description: >-
-  Create or update a Fogpipe app with a new image, using a Fogpipe API key
+  Create or update a Fogpipe Cloud app with a new image, using a Fogpipe Cloud API key
   (FPCLOUD_API_KEY, from fogpipe/cloud-actions/auth). First run creates the app;
   later runs roll out the new image.
 
@@ -24,7 +24,7 @@ inputs:
     required: false
     default: "all"
   api-url:
-    description: "Fogpipe API base URL."
+    description: "Fogpipe Cloud API base URL."
     required: false
     default: "https://api.cloud.fogpipe.com"
 outputs:

@@ -1,6 +1,6 @@
-name: "Fogpipe registry login"
+name: "Fogpipe Cloud registry login"
 description: >-
-  Docker-login to the Fogpipe container registry using a Fogpipe API key
+  Docker-login to the Fogpipe Cloud container registry using a Fogpipe Cloud API key
   (FPCLOUD_API_KEY, from fogpipe/cloud-actions/auth). Fetches a short-lived,
   project-scoped credential from the control plane — no registry password is ever
   stored, and the credential can only push to your own tenants/<project>/**.
@@ -8,7 +8,7 @@ description: >-
 # Run fogpipe/cloud-actions/auth first (it exports FPCLOUD_API_KEY).
 inputs:
   api-url:
-    description: "Fogpipe API base URL."
+    description: "Fogpipe Cloud API base URL."
     required: false
     default: "https://api.cloud.fogpipe.com"
 outputs:

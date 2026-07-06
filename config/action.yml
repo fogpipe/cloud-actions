@@ -24,7 +24,7 @@ inputs:
     required: false
     default: ""
   api-url:
-    description: "Fogpipe API base URL."
+    description: "Fogpipe Cloud API base URL."
     required: false
     default: "https://api.cloud.fogpipe.com"
 
