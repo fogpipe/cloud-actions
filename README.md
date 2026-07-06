@@ -41,12 +41,17 @@ jobs:
       - id: registry
         uses: fogpipe/cloud-actions/registry-login@main
 
+      - name: Image ref
+        run: echo "IMAGE=${{ steps.registry.outputs.repository }}/myorg/myapp:${{ github.sha }}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4
+
       - name: Build & push
-        run: |
-          IMG="${{ steps.registry.outputs.repository }}/myapp:${{ github.sha }}"
-          docker build -t "$IMG" .
-          docker push "$IMG"
-          echo "IMAGE=$IMG" >> "$GITHUB_ENV"
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}
 
       # optional: set config + secrets before deploy so new pods boot with them
       - uses: fogpipe/cloud-actions/config@main
