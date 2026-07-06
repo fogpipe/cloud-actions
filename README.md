@@ -41,12 +41,17 @@ jobs:
       - id: registry
         uses: fogpipe/cloud-actions/registry-login@main
 
+      - name: Image ref
+        run: echo "IMAGE=${{ steps.registry.outputs.repository }}/myorg/myapp:${{ github.sha }}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4
+
       - name: Build & push
-        run: |
-          IMG="${{ steps.registry.outputs.repository }}/myapp:${{ github.sha }}"
-          docker build -t "$IMG" .
-          docker push "$IMG"
-          echo "IMAGE=$IMG" >> "$GITHUB_ENV"
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}
 
       # optional: set config + secrets before deploy so new pods boot with them
       - uses: fogpipe/cloud-actions/config@main
@@ -91,5 +96,3 @@ Each repo can only act within its own project and can only push to its own
 `tenants/<project>/**` prefix — a leaked credential can't touch the platform's
 images or another tenant's repositories. Credentials are short-lived and minted
 per run; there is no stored key to rotate or leak.
-
-Full guide: [deploy-from-github](https://github.com/fogpipe/cloud/blob/main/docs/deploy-from-github.md).
