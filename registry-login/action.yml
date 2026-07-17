@@ -1,9 +1,10 @@
 name: "Fogpipe Cloud registry login"
 description: >-
   Docker-login to the Fogpipe Cloud container registry using a Fogpipe Cloud API key
-  (FPCLOUD_API_KEY, from fogpipe/cloud-actions/auth). Fetches a short-lived,
-  project-scoped credential from the control plane — no registry password is ever
-  stored, and the credential can only push to your own tenants/<project>/**.
+  (FPCLOUD_API_KEY, from fogpipe/cloud-actions/auth). The key is presented to the
+  registry token broker, which validates your identity and mints a short-lived,
+  IAM-scoped registry token — no registry password is ever stored, and you can only
+  push to your own <org>/<project>/** repositories.
 
 # Run fogpipe/cloud-actions/auth first (it exports FPCLOUD_API_KEY).
 inputs:
@@ -13,7 +14,7 @@ inputs:
     default: "https://api.cloud.fogpipe.com"
 outputs:
   repository:
-    description: "Your registry repository prefix, e.g. registry.cloud.fogpipe.com/tenants/<project>."
+    description: "Your registry repository prefix, e.g. registry.cloud.fogpipe.com/<org>/<project>."
     value: ${{ steps.login.outputs.repository }}
 runs:
   using: "composite"
@@ -28,17 +29,19 @@ runs:
           echo "::error::FPCLOUD_API_KEY is not set — run fogpipe/cloud-actions/auth first." >&2
           exit 1
         fi
+        # Resolve the registry endpoint + your project's repository prefix.
         resp="$(curl -sS -H "Authorization: Bearer ${FPCLOUD_API_KEY}" \
           "${FPCLOUD_API_URL%/}/api/v1/registry/credentials")"
         server="$(printf '%s' "${resp}" | jq -r '.server // empty')"
-        user="$(printf '%s' "${resp}" | jq -r '.username // empty')"
-        pass="$(printf '%s' "${resp}" | jq -r '.password // empty')"
         repo="$(printf '%s' "${resp}" | jq -r '.repository // empty')"
-        if [ -z "${server}" ] || [ -z "${pass}" ]; then
-          echo "::error::Failed to fetch registry credentials: $(printf '%s' "${resp}" | jq -r '.error // .message // "unknown"')" >&2
+        if [ -z "${server}" ]; then
+          echo "::error::Failed to resolve the registry endpoint: $(printf '%s' "${resp}" | jq -r '.error // .message // "unknown"')" >&2
           exit 1
         fi
-        echo "::add-mask::${pass}"
-        printf '%s' "${pass}" | docker login "${server}" --username "${user}" --password-stdin
+        # Present the API key itself to the registry token broker (ADR-013): it
+        # validates the identity and mints a short-lived, IAM-scoped token on each
+        # push/pull. The username is a docker-side label the broker ignores.
+        echo "::add-mask::${FPCLOUD_API_KEY}"
+        printf '%s' "${FPCLOUD_API_KEY}" | docker login "${server}" --username fpcloud --password-stdin
         echo "repository=${repo}" >> "${GITHUB_OUTPUT}"
-        echo "Logged in to ${server} as ${user} (scoped to ${repo})."
+        echo "Logged in to ${server} (scoped to ${repo})."
