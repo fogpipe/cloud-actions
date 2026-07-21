@@ -14,7 +14,7 @@ registry, and rolls out the app.
 | [`auth`](./auth) | Exchange the job's GitHub OIDC token for a short-lived `FPCLOUD_API_KEY`. |
 | [`registry-login`](./registry-login) | `docker login` via the registry token broker — a short-lived, IAM-scoped token; push only to your `<org>/<project>/**`. |
 | [`config`](./config) | Set app config (ConfigMap) + secrets (Secret) for the project's app. |
-| [`deploy`](./deploy) | Create or update a Fogpipe Cloud app with a new image. |
+| [`deploy`](./deploy) | Create or update a Fogpipe Cloud app with a new image. If the app has a `release_command`, waits for it and fails the step when it fails. |
 
 ## Usage
 

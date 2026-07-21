@@ -63,11 +63,37 @@ runs:
           resp="$(curl -sS "${auth[@]}" -X POST "${base}/api/v1/apps/${id}/deploy" \
             -d "$(jq -n --arg i "${IMAGE}" '{image:$i}')")"
         fi
-        if printf '%s' "${resp}" | jq -e '.id' >/dev/null 2>&1; then
-          url="$(printf '%s' "${resp}" | jq -r '.url // empty')"
-          echo "url=${url}" >> "${GITHUB_OUTPUT}"
-          echo "OK: $(printf '%s' "${resp}" | jq -c '{name,status,url}')"
-        else
+        if ! printf '%s' "${resp}" | jq -e '.id' >/dev/null 2>&1; then
           echo "::error::Deploy failed: $(printf '%s' "${resp}" | jq -r '.error // .message // .' 2>/dev/null || printf '%s' "${resp}")" >&2
           exit 1
         fi
+        # A release-gated deploy (the app has a release_command) is accepted
+        # immediately while the release command runs as a Job on the platform;
+        # follow the deployment record so a failed migration fails this step.
+        if [ -n "${id:-}" ] && [ "${id}" != "null" ] && printf '%s' "${resp}" | jq -e '(.release_command // []) | length > 0' >/dev/null 2>&1; then
+          echo "Running release command…"
+          status=""
+          for _ in $(seq 1 600); do
+            dep="$(curl -sS "${auth[@]}" "${base}/api/v1/apps/${id}/deployments" | jq -c '.[0] // empty')"
+            status="$(printf '%s' "${dep}" | jq -r '.status // empty')"
+            case "${status}" in
+              deploying|releasing|"") sleep 3 ;;
+              failed)
+                echo "::error::Release command failed: $(printf '%s' "${dep}" | jq -r '.message // "unknown"')" >&2
+                logs="$(printf '%s' "${dep}" | jq -r '.release_logs // empty')"
+                if [ -n "${logs}" ]; then
+                  printf -- '--- release command output ---\n%s\n' "${logs}" >&2
+                fi
+                exit 1 ;;
+              *) break ;;
+            esac
+          done
+          case "${status}" in
+            deploying|releasing|"")
+              echo "::error::Timed out waiting for the release command to finish." >&2
+              exit 1 ;;
+          esac
+        fi
+        url="$(printf '%s' "${resp}" | jq -r '.url // empty')"
+        echo "url=${url}" >> "${GITHUB_OUTPUT}"
+        echo "OK: $(printf '%s' "${resp}" | jq -c '{name,status,url}')"
