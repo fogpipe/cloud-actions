@@ -96,3 +96,7 @@ Each repo can only act within its own project and can only push to its own
 `tenants/<project>/**` prefix — a leaked credential can't touch the platform's
 images or another tenant's repositories. Credentials are short-lived and minted
 per run; there is no stored key to rotate or leak.
+
+## License
+
+[Apache-2.0](./LICENSE), the licence every public Fogpipe repository carries.
