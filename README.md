@@ -13,7 +13,7 @@ registry, and rolls out the app.
 | --- | --- |
 | [`auth`](./auth) | Exchange the job's GitHub OIDC token for a short-lived `FPCLOUD_API_KEY`. |
 | [`registry-login`](./registry-login) | `docker login` via the registry token broker — a short-lived, IAM-scoped token; push only to your `<org>/<project>/**`. |
-| [`config`](./config) | Set app config (ConfigMap) + secrets (Secret) for the project's app. |
+| [`config`](./config) | Set the app's config (plain env). A credential is a project secret mounted as a file, set with `fpcloud secret`, not here. |
 | [`deploy`](./deploy) | Create or update a Fogpipe Cloud app with a new image. If the app has a `release_command`, waits for it and fails the step when it fails. |
 
 ## Usage
@@ -53,15 +53,13 @@ jobs:
           push: true
           tags: ${{ env.IMAGE }}
 
-      # optional: set config + secrets before deploy so new pods boot with them
+      # optional: set config before deploy so new pods boot with it
       - uses: fogpipe/cloud-actions/config@main
         with:
           project: myproject
           app: myapp
           env: |
             LOG_LEVEL=info
-          secret: |
-            API_TOKEN=${{ secrets.API_TOKEN }}
 
       - uses: fogpipe/cloud-actions/deploy@main
         with:

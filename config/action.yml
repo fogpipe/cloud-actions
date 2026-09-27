@@ -1,9 +1,9 @@
 name: "Fogpipe Cloud config"
 description: >-
-  Set app config and secrets on Fogpipe Cloud from GitHub Actions. Reuses the
-  short-lived FPCLOUD_API_KEY minted by fogpipe/cloud-actions/auth (no stored
-  key). Plain values are stored in a ConfigMap, secret values (encrypted at rest)
-  in a Secret; both are injected into the app via envFrom and rolled out.
+  Set app config on Fogpipe Cloud from GitHub Actions. Reuses the short-lived
+  FPCLOUD_API_KEY minted by fogpipe/cloud-actions/auth (no stored key). Values
+  are plain env, rendered into the app and rolled out; a credential belongs in
+  a project secret mounted as a file, not here.
 
 # Requires the calling job to grant:  permissions: { id-token: write }
 # and a prior `uses: fogpipe/cloud-actions/auth` step to export FPCLOUD_API_KEY.
@@ -19,10 +19,6 @@ inputs:
     description: "Plain config as newline-separated KEY=VALUE pairs."
     required: false
     default: ""
-  secret:
-    description: "Secret config as newline-separated KEY=VALUE pairs (values are masked)."
-    required: false
-    default: ""
   api-url:
     description: "Fogpipe Cloud API base URL."
     required: false
@@ -36,7 +32,6 @@ runs:
         FPCLOUD_PROJECT: ${{ inputs.project }}
         FPCLOUD_APP: ${{ inputs.app }}
         FPCLOUD_ENV: ${{ inputs.env }}
-        FPCLOUD_SECRET: ${{ inputs.secret }}
         FPCLOUD_API_URL: ${{ inputs.api-url }}
       run: |
         set -euo pipefail
@@ -54,9 +49,9 @@ runs:
         fi
 
         set_one() {
-          # $1=key  $2=value  $3=is_secret(true|false)
+          # $1=key  $2=value
           local body code
-          body="$(jq -n --arg k "$1" --arg v "$2" --argjson s "$3" '{key:$k, value:$v, is_secret:$s}')"
+          body="$(jq -n --arg k "$1" --arg v "$2" '{key:$k, value:$v}')"
           code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
             -H "${auth}" -H "Content-Type: application/json" \
             -d "${body}" "${base}/api/v1/apps/${app_id}/config")"
@@ -67,7 +62,7 @@ runs:
         }
 
         apply_block() {
-          # $1=block text  $2=is_secret(true|false)
+          # $1=block text
           [ -z "$1" ] && return 0
           local line key value
           while IFS= read -r line || [ -n "${line}" ]; do
@@ -80,12 +75,10 @@ runs:
             value="${line#*=}"
             key="${key#"${key%%[![:space:]]*}"}"   # ltrim
             key="${key%"${key##*[![:space:]]}"}"    # rtrim
-            [ "$2" = "true" ] && echo "::add-mask::${value}"
-            set_one "${key}" "${value}" "$2"
-            echo "set ${key} (secret=$2)"
+            set_one "${key}" "${value}"
+            echo "set ${key}"
           done <<< "$1"
         }
 
-        apply_block "${FPCLOUD_ENV}" false
-        apply_block "${FPCLOUD_SECRET}" true
+        apply_block "${FPCLOUD_ENV}"
         echo "Config applied to app ${FPCLOUD_APP}."
