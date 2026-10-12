@@ -1,0 +1,87 @@
+name: "Fogpipe Cloud setup"
+description: >-
+  Install the fpcloud CLI on the runner, so any later `run: fpcloud …` step
+  works. Downloads a released binary from fogpipe/cloud-cli and verifies the
+  sha256 published beside it. Run fogpipe/cloud-actions/auth before or after
+  it: the CLI reads the FPCLOUD_API_KEY that auth exports.
+
+# The download goes through GitHub's `releases/latest/download/<asset>`
+# redirect rather than the releases API: the API is rate-limited per IP and
+# hosted runners share theirs, so a release lookup there fails on a busy day
+# and needs a token to avoid it. The redirect needs neither, and the version
+# it resolved is read off the URL it points at.
+#
+# The checksum travels the same channel as the binary, so it closes tampering
+# in transit or at a cache in between, not a compromise of the release itself.
+# Same stance as cli/install.sh.
+
+inputs:
+  version:
+    description: >-
+      fpcloud release to install, e.g. v0.207.4. Default is the latest release.
+      A pinned version is what makes a workflow reproducible; `latest` moves
+      with every release of the product.
+    required: false
+    default: "latest"
+
+outputs:
+  version:
+    description: "The fpcloud version that was installed."
+    value: ${{ steps.install.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: install
+      shell: bash
+      env:
+        FPCLOUD_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "$(uname -s)" in
+          Linux)  os=linux ;;
+          Darwin) os=darwin ;;
+          *) echo "::error::fpcloud ships Linux and macOS binaries; this runner is $(uname -s)." >&2; exit 1 ;;
+        esac
+        case "$(uname -m)" in
+          x86_64|amd64)  arch=amd64 ;;
+          arm64|aarch64) arch=arm64 ;;
+          *) echo "::error::unsupported architecture $(uname -m)." >&2; exit 1 ;;
+        esac
+        asset="fpcloud-${os}-${arch}"
+        releases="https://github.com/fogpipe/cloud-cli/releases"
+        version="${FPCLOUD_VERSION}"
+        if [ "${version}" = "latest" ]; then
+          # Resolve the version first, from the one redirect, and download
+          # both files from that version: two "latest" downloads could
+          # straddle a release and pair a binary with another release's sum.
+          redirect="$(curl -sS --fail --retry 3 --retry-delay 1 --retry-connrefused \
+            -o /dev/null -w '%{redirect_url}' "${releases}/latest/download/${asset}")"
+          version="$(printf '%s' "${redirect}" | sed -n 's#.*/releases/download/\([^/]*\)/.*#\1#p')"
+          if [ -z "${version}" ]; then
+            echo "::error::could not resolve the latest fpcloud release (redirect was '${redirect}')." >&2
+            exit 1
+          fi
+        fi
+        base="${releases}/download/${version}"
+
+        dir="${RUNNER_TEMP}/fpcloud-bin"
+        mkdir -p "${dir}"
+        cd "${dir}"
+        for f in "${asset}" "${asset}.sha256"; do
+          curl -sSL --fail --retry 3 --retry-delay 1 --retry-connrefused \
+            -o "${f}" "${base}/${f}" \
+            || { echo "::error::no ${f} in fpcloud release ${version} (${base}/${f})." >&2; exit 1; }
+        done
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum --check --status "${asset}.sha256"
+        else
+          shasum -a 256 --check --status "${asset}.sha256"
+        fi || { echo "::error::checksum mismatch for ${asset}; refusing to install." >&2; exit 1; }
+        mv "${asset}" fpcloud
+        chmod +x fpcloud
+        rm -f "${asset}.sha256"
+
+        echo "${dir}" >> "${GITHUB_PATH}"
+        echo "version=${version}" >> "${GITHUB_OUTPUT}"
+        echo "Installed fpcloud ${version} (${os}/${arch})."

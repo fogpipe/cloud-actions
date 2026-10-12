@@ -23,6 +23,15 @@ inputs:
     description: "Ingress mode: all (public) or internal."
     required: false
     default: "all"
+  release:
+    description: >-
+      Name of the release this deploy publishes, which is what
+      `fpcloud app rollback <release>` later aims at. Derive it from the
+      image, never invent it: the version the tag carries (`v2.1.18`), or the
+      tag verbatim when it carries none. A deploy without one cannot be named
+      afterwards.
+    required: false
+    default: ""
   api-url:
     description: "Fogpipe Cloud API base URL."
     required: false
@@ -43,6 +52,7 @@ runs:
         IMAGE: ${{ inputs.image }}
         PORT: ${{ inputs.port }}
         INGRESS: ${{ inputs.ingress }}
+        RELEASE: ${{ inputs.release }}
       run: |
         set -euo pipefail
         if [ -z "${FPCLOUD_API_KEY:-}" ]; then
@@ -57,11 +67,12 @@ runs:
           echo "Creating app ${APP} in ${PROJECT}…"
           resp="$(curl -sS "${auth[@]}" -X POST "${base}/api/v1/projects/${PROJECT}/apps" \
             -d "$(jq -n --arg n "${APP}" --arg i "${IMAGE}" --argjson p "${PORT}" --arg ing "${INGRESS}" \
-                  '{name:$n,image:$i,port:$p,ingress:$ing,tier:"dedicated"}')")"
+                  '{name:$n,image:$i,port:$p,ingress:$ing}')")"
         else
           echo "Deploying new image to ${APP} (${id})…"
           resp="$(curl -sS "${auth[@]}" -X POST "${base}/api/v1/apps/${id}/deploy" \
-            -d "$(jq -n --arg i "${IMAGE}" '{image:$i}')")"
+            -d "$(jq -n --arg i "${IMAGE}" --arg r "${RELEASE}" \
+                  '{image:$i} + (if $r == "" then {} else {release:$r} end)')")"
         fi
         if ! printf '%s' "${resp}" | jq -e '.id' >/dev/null 2>&1; then
           echo "::error::Deploy failed: $(printf '%s' "${resp}" | jq -r '.error // .message // .' 2>/dev/null || printf '%s' "${resp}")" >&2

@@ -1,31 +1,36 @@
 # fogpipe/cloud-actions
 
 GitHub Actions for deploying to **Fogpipe Cloud** from CI using **OIDC
-workload-identity federation** — no long-lived secrets stored in your repository.
+workload-identity federation**: no long-lived secrets stored in your repository.
 
 Your workflow proves its identity with a GitHub OIDC token, exchanges it for a
-short-lived, project-scoped credential, pushes its image to its own slice of the
-registry, and rolls out the app.
+short-lived, project-scoped credential, and from there either runs the
+`fpcloud` CLI directly or uses the actions below.
 
 ## Actions
 
 | Action | What it does |
 | --- | --- |
 | [`auth`](./auth) | Exchange the job's GitHub OIDC token for a short-lived `FPCLOUD_API_KEY`. |
-| [`registry-login`](./registry-login) | `docker login` via the registry token broker — a short-lived, IAM-scoped token; push only to your `<org>/<project>/**`. |
+| [`setup`](./setup) | Install a released `fpcloud` on the runner, checksum-verified. After it, any `run: fpcloud …` step works. |
+| [`registry-login`](./registry-login) | `docker login` via the registry token broker: a short-lived, IAM-scoped token; push only to your `<org>/<project>/**`. |
 | [`config`](./config) | Set the app's config (plain env). A credential is a project secret mounted as a file, set with `fpcloud secret`, not here. |
-| [`deploy`](./deploy) | Create or update a Fogpipe Cloud app with a new image. If the app has a `release_command`, waits for it and fails the step when it fails. |
+| [`deploy`](./deploy) | Create or update an app with a new image, named by `release` so it can be rolled back to. If the app has a `release_command`, waits for it and fails the step when it fails. |
+| [`website`](./website) | Deploy a directory as a static website: a new version uploaded, then served atomically, earlier versions kept for rollback. |
 
-## Usage
+Pin to the `v1` tag. It moves with every compatible release of these actions;
+`@main` is whatever was pushed last.
+
+## Deploy an app
 
 ```yaml
 name: deploy
 on:
   push:
-    branches: [main]
+    tags: ['v*']
 
 permissions:
-  id-token: write   # required — lets the job mint a GitHub OIDC token
+  id-token: write   # required: lets the job mint a GitHub OIDC token
   contents: read
 
 jobs:
@@ -34,15 +39,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: fogpipe/cloud-actions/auth@main
+      - uses: fogpipe/cloud-actions/auth@v1
         with:
           service-account: deployer@myproject.cloud.fogpipe.com
 
       - id: registry
-        uses: fogpipe/cloud-actions/registry-login@main
+        uses: fogpipe/cloud-actions/registry-login@v1
 
       - name: Image ref
-        run: echo "IMAGE=${{ steps.registry.outputs.repository }}/myorg/myapp:${{ github.sha }}" >> "$GITHUB_ENV"
+        run: echo "IMAGE=${{ steps.registry.outputs.repository }}/myapp:${{ github.ref_name }}" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@v4
 
@@ -54,20 +59,65 @@ jobs:
           tags: ${{ env.IMAGE }}
 
       # optional: set config before deploy so new pods boot with it
-      - uses: fogpipe/cloud-actions/config@main
+      - uses: fogpipe/cloud-actions/config@v1
         with:
           project: myproject
           app: myapp
           env: |
             LOG_LEVEL=info
 
-      - uses: fogpipe/cloud-actions/deploy@main
+      - uses: fogpipe/cloud-actions/deploy@v1
         with:
           project: myproject
           app: myapp
           image: ${{ env.IMAGE }}
+          release: ${{ github.ref_name }}   # what `fpcloud app rollback` aims at
           port: "8080"
           ingress: all
+```
+
+`release` is the version the image carries, here the tag that triggered the
+run. Leave it out and the revision has no name: it still deploys, but
+`fpcloud app rollback <release>` has nothing to aim at.
+
+## Deploy a static website
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci && npm run build
+
+      - uses: fogpipe/cloud-actions/auth@v1
+        with:
+          service-account: deployer@myproject.cloud.fogpipe.com
+      - uses: fogpipe/cloud-actions/setup@v1
+
+      - uses: fogpipe/cloud-actions/website@v1
+        with:
+          project: myproject
+          name: docs
+          dir: dist
+```
+
+The first run creates the website; every run uploads the directory as a new
+version and switches serving to it. `fpcloud website rollback docs` goes back.
+
+## Use the CLI directly
+
+`setup` puts `fpcloud` on the path and `auth` gives it a credential, so
+anything the CLI does is one `run:` step away:
+
+```yaml
+      - uses: fogpipe/cloud-actions/auth@v1
+        with:
+          service-account: deployer@myproject.cloud.fogpipe.com
+      - uses: fogpipe/cloud-actions/setup@v1
+        with:
+          version: v0.207.4        # optional; default is the latest release
+      - run: fpcloud --project myproject app logs myapp --since 1h
 ```
 
 ## One-time setup
@@ -81,19 +131,23 @@ fpcloud --project myproject iam set \
   --member serviceAccount:deployer@myproject.cloud.fogpipe.com --role editor
 
 fpcloud --project myproject federation github add \
-  --repo myorg/myrepo \
+  --repo myorg/myrepo --ref refs/tags/* \
   --service-account deployer@myproject.cloud.fogpipe.com
 ```
 
-Nothing is copied into GitHub. Scope tighter with `--ref refs/tags/*` to deploy
-only on tags, and revoke a repo instantly with `fpcloud federation remove <id>`.
+Nothing is copied into GitHub. `--ref` pins which refs may deploy; omit it to
+allow any ref of the repository, including pull requests. A job that deploys
+through a GitHub environment presents the environment instead of the ref, so
+trust it with `--subject repo:myorg/myrepo:environment:production`. Revoke a
+repo at any time with `fpcloud federation remove <id>`.
 
 ## Security
 
 Each repo can only act within its own project and can only push to its own
-`tenants/<project>/**` prefix — a leaked credential can't touch the platform's
-images or another tenant's repositories. Credentials are short-lived and minted
-per run; there is no stored key to rotate or leak.
+`<org>/<project>/**` registry prefix: a leaked credential cannot touch the
+platform's images or another tenant's repositories. Credentials are minted per
+run and expire on the trust binding's TTL (15 minutes by default); there is no
+stored key to rotate or leak.
 
 ## License
 

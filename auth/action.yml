@@ -6,6 +6,13 @@ description: >-
   fpcloud / terraform / tofu steps.
 
 # Requires the calling job to grant:  permissions: { id-token: write }
+#
+# Both requests retry on what curl calls transient (timeouts, 408, 429, 5xx),
+# which is the set google-github-actions/auth retries on too; a 401 or 403 is
+# an answer and is not retried. There is no post-step that unexports the key:
+# a composite action cannot declare one, the credential expires on the TTL the
+# trust binding sets (15 minutes by default), and a hosted runner is torn down
+# with the job.
 
 inputs:
   service-account:
@@ -43,7 +50,7 @@ runs:
         fi
 
         # 1. Mint the GitHub Actions OIDC token for our audience.
-        oidc_token="$(curl -sS \
+        oidc_token="$(curl -sS --retry 3 --retry-delay 1 --retry-connrefused \
           -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
           "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FPCLOUD_AUDIENCE}" \
           | jq -r '.value')"
@@ -53,7 +60,8 @@ runs:
         fi
 
         # 2. Exchange it at the fpcloud token endpoint (RFC 8693 shape).
-        response="$(curl -sS -X POST "${FPCLOUD_API_URL%/}/api/v1/auth/token" \
+        response="$(curl -sS --retry 3 --retry-delay 1 --retry-connrefused \
+          -X POST "${FPCLOUD_API_URL%/}/api/v1/auth/token" \
           -H "Content-Type: application/json" \
           -d "$(jq -n \
                 --arg t "${oidc_token}" \
