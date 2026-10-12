@@ -1,0 +1,61 @@
+name: "Fogpipe Cloud website"
+description: >-
+  Deploy a directory as a static website on Fogpipe Cloud. Creates the website
+  on first use, uploads the directory as a new version, then switches serving
+  to it atomically; earlier versions are kept for `fpcloud website rollback`.
+
+# Run fogpipe/cloud-actions/auth and fogpipe/cloud-actions/setup first: this
+# is `fpcloud website deploy`, and the upload is object-store traffic the CLI
+# signs itself, which is why there is no curl here to copy.
+
+inputs:
+  name:
+    description: "Website name."
+    required: true
+  dir:
+    description: "Directory to deploy, relative to the workspace."
+    required: true
+  project:
+    description: "Project the website belongs to."
+    required: true
+  keep:
+    description: "How many recent versions to keep for rollback; older ones are pruned after the deploy."
+    required: false
+    default: "5"
+  cache-control:
+    description: >-
+      Cache-Control rules, one per line, in the form the CLI's --cache-control
+      flag takes (e.g. `*.html=no-cache`). Empty applies the CLI's defaults.
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        DIR: ${{ inputs.dir }}
+        PROJECT: ${{ inputs.project }}
+        KEEP: ${{ inputs.keep }}
+        CACHE_CONTROL: ${{ inputs.cache-control }}
+      run: |
+        set -euo pipefail
+        if ! command -v fpcloud >/dev/null 2>&1; then
+          echo "::error::fpcloud is not installed. Run fogpipe/cloud-actions/setup first." >&2
+          exit 1
+        fi
+        if [ -z "${FPCLOUD_API_KEY:-}" ]; then
+          echo "::error::FPCLOUD_API_KEY is not set. Run fogpipe/cloud-actions/auth first." >&2
+          exit 1
+        fi
+        if [ ! -d "${DIR}" ]; then
+          echo "::error::${DIR} is not a directory." >&2
+          exit 1
+        fi
+        args=(--project "${PROJECT}" website deploy "${NAME}" "${DIR}" --keep "${KEEP}")
+        while IFS= read -r rule || [ -n "${rule}" ]; do
+          case "${rule}" in ''|'#'*) continue ;; esac
+          args+=(--cache-control "${rule}")
+        done <<< "${CACHE_CONTROL}"
+        fpcloud "${args[@]}"
