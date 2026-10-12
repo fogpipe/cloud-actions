@@ -41,7 +41,7 @@ jobs:
 
       - uses: fogpipe/cloud-actions/auth@v1
         with:
-          service-account: deployer@myproject.cloud.fogpipe.com
+          service-account: deployer@myproject.k3f.cloud.fogpipe.com
 
       - id: registry
         uses: fogpipe/cloud-actions/registry-login@v1
@@ -92,7 +92,7 @@ jobs:
 
       - uses: fogpipe/cloud-actions/auth@v1
         with:
-          service-account: deployer@myproject.cloud.fogpipe.com
+          service-account: deployer@myproject.k3f.cloud.fogpipe.com
       - uses: fogpipe/cloud-actions/setup@v1
 
       - uses: fogpipe/cloud-actions/website@v1
@@ -113,7 +113,7 @@ anything the CLI does is one `run:` step away:
 ```yaml
       - uses: fogpipe/cloud-actions/auth@v1
         with:
-          service-account: deployer@myproject.cloud.fogpipe.com
+          service-account: deployer@myproject.k3f.cloud.fogpipe.com
       - uses: fogpipe/cloud-actions/setup@v1
         with:
           version: v0.207.4        # optional; default is the latest release
@@ -128,14 +128,15 @@ Create a service account, grant it a role on your project, and trust your repo:
 fpcloud --project myproject sa create deployer
 
 fpcloud --project myproject iam set \
-  --member serviceAccount:deployer@myproject.cloud.fogpipe.com --role editor
+  --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role editor
 
 fpcloud --project myproject federation github add \
   --repo myorg/myrepo --ref refs/tags/* \
-  --service-account deployer@myproject.cloud.fogpipe.com
+  --service-account deployer@myproject.k3f.cloud.fogpipe.com
 ```
 
-Nothing is copied into GitHub. `--ref` pins which refs may deploy; omit it to
+A service account's address is `<name>@<project>.<org short id>.cloud.fogpipe.com`;
+`fpcloud sa create` prints it. Nothing is copied into GitHub. `--ref` pins which refs may deploy; omit it to
 allow any ref of the repository, including pull requests. A job that deploys
 through a GitHub environment presents the environment instead of the ref, so
 trust it with `--subject repo:myorg/myrepo:environment:production`. Revoke a
