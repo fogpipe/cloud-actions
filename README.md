@@ -102,8 +102,11 @@ jobs:
           dir: dist
 ```
 
-The first run creates the website; every run uploads the directory as a new
-version and switches serving to it. `fpcloud website rollback docs` goes back.
+The first run creates the website, which takes `bucket.create`, so whoever sets
+the project up runs it once from their own login; every run after uploads the
+directory as a new version and switches serving to it, which is what the CI
+account's `bucket.publisher` role allows. `fpcloud website rollback docs` goes
+back.
 
 ## Use the CLI directly
 
@@ -122,8 +125,9 @@ anything the CLI does is one `run:` step away:
 
 ## One-time setup
 
-Create a service account, grant it the two roles deploying needs on your
-project, and trust your repo:
+Create a service account, grant it the roles its deploys need on your project
+(`app.deployer` and `registry.writer` for an app, `bucket.publisher` for a
+static website, all three for a repo that does both), and trust your repo:
 
 ```bash
 fpcloud --project myproject sa create deployer
@@ -132,6 +136,9 @@ fpcloud --project myproject iam set \
   --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role app.deployer
 fpcloud --project myproject iam set \
   --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role registry.writer
+# a static website instead of, or beside, the two above
+fpcloud --project myproject iam set \
+  --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role bucket.publisher
 
 fpcloud --project myproject federation github add \
   --repo myorg/myrepo --ref refs/tags/* \
