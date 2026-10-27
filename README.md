@@ -122,13 +122,16 @@ anything the CLI does is one `run:` step away:
 
 ## One-time setup
 
-Create a service account, grant it a role on your project, and trust your repo:
+Create a service account, grant it the two roles deploying needs on your
+project, and trust your repo:
 
 ```bash
 fpcloud --project myproject sa create deployer
 
 fpcloud --project myproject iam set \
-  --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role editor
+  --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role app.deployer
+fpcloud --project myproject iam set \
+  --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role registry.writer
 
 fpcloud --project myproject federation github add \
   --repo myorg/myrepo --ref refs/tags/* \
