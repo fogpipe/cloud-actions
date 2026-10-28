@@ -132,12 +132,12 @@ static website, all three for a repo that does both), and trust your repo:
 ```bash
 fpcloud --project myproject sa create deployer
 
-fpcloud --project myproject iam set \
+fpcloud --project myproject iam grant \
   --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role app.deployer
-fpcloud --project myproject iam set \
+fpcloud --project myproject iam grant \
   --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role registry.writer
 # a static website instead of, or beside, the two above
-fpcloud --project myproject iam set \
+fpcloud --project myproject iam grant \
   --member serviceAccount:deployer@myproject.k3f.cloud.fogpipe.com --role bucket.publisher
 
 fpcloud --project myproject federation github add \
