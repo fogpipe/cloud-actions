@@ -48,37 +48,33 @@ runs:
           exit 1
         fi
 
-        set_one() {
-          # $1=key  $2=value
-          local body code
-          body="$(jq -n --arg k "$1" --arg v "$2" '{key:$k, value:$v}')"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
-            -H "${auth}" -H "Content-Type: application/json" \
-            -d "${body}" "${base}/api/v1/apps/${app_id}/config")"
-          if [ "${code}" -lt 200 ] || [ "${code}" -ge 300 ]; then
-            echo "::error::failed to set '$1' (HTTP ${code})." >&2
+        # Every pair is one change: one PATCH sets them together, so the app
+        # rolls once onto all of them and never starts on part of the block.
+        entries='[]'
+        while IFS= read -r line || [ -n "${line}" ]; do
+          case "${line}" in ''|'#'*) continue ;; esac
+          if [ "${line%%=*}" = "${line}" ]; then
+            echo "::error::invalid line (expected KEY=VALUE): ${line}" >&2
             exit 1
           fi
-        }
+          key="${line%%=*}"
+          value="${line#*=}"
+          key="${key#"${key%%[![:space:]]*}"}"   # ltrim
+          key="${key%"${key##*[![:space:]]}"}"    # rtrim
+          entries="$(jq -c --arg k "${key}" --arg v "${value}" '. + [{key:$k, value:$v}]' <<< "${entries}")"
+        done <<< "${FPCLOUD_ENV}"
+        if [ "${entries}" = '[]' ]; then
+          echo "No config to apply to app ${FPCLOUD_APP}."
+          exit 0
+        fi
 
-        apply_block() {
-          # $1=block text
-          [ -z "$1" ] && return 0
-          local line key value
-          while IFS= read -r line || [ -n "${line}" ]; do
-            case "${line}" in ''|'#'*) continue ;; esac
-            if [ "${line%%=*}" = "${line}" ]; then
-              echo "::error::invalid line (expected KEY=VALUE): ${line}" >&2
-              exit 1
-            fi
-            key="${line%%=*}"
-            value="${line#*=}"
-            key="${key#"${key%%[![:space:]]*}"}"   # ltrim
-            key="${key%"${key##*[![:space:]]}"}"    # rtrim
-            set_one "${key}" "${value}"
-            echo "set ${key}"
-          done <<< "$1"
-        }
-
-        apply_block "${FPCLOUD_ENV}"
+        out="$(mktemp)"
+        code="$(curl -sS -o "${out}" -w '%{http_code}' -X PATCH \
+          -H "${auth}" -H "Content-Type: application/json" \
+          -d "$(jq -c '{set: .}' <<< "${entries}")" "${base}/api/v1/apps/${app_id}/config")"
+        if [ "${code}" -lt 200 ] || [ "${code}" -ge 300 ]; then
+          echo "::error::failed to apply config (HTTP ${code}): $(jq -r '.error // .' "${out}" 2>/dev/null || cat "${out}")" >&2
+          exit 1
+        fi
+        jq -r '.[].key | "set \(.)"' <<< "${entries}"
         echo "Config applied to app ${FPCLOUD_APP}."
