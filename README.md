@@ -15,7 +15,7 @@ short-lived, project-scoped credential, and from there either runs the
 | [`setup`](./setup) | Install a released `fpcloud` on the runner, checksum-verified. After it, any `run: fpcloud …` step works. |
 | [`registry-login`](./registry-login) | `docker login` via the registry token broker: a short-lived, IAM-scoped token; push only to your `<org>/<project>/**`. |
 | [`config`](./config) | Set the app's config (plain env). A credential is a project secret mounted as a file, set with `fpcloud secret`, not here. |
-| [`deploy`](./deploy) | Create or update an app with a new image, named by `release` so it can be rolled back to. If the app has a `release_command`, waits for it and fails the step when it fails. |
+| [`deploy`](./deploy) | Create or update an app with a new image, named by `release` so it can be rolled back to. If the app has a `release_command`, waits for it and fails the step when it fails. Set `wait: "true"` to wait for the rollout too; without it the step ends while the previous version is still serving. |
 | [`website`](./website) | Deploy a directory as a static website: a new version uploaded, then served atomically, earlier versions kept for rollback. |
 
 Pin to the `v1` tag. It moves with every compatible release of these actions;

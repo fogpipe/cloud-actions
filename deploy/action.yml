@@ -31,6 +31,15 @@ inputs:
       build's short digest when the tag repeats on another build.
     required: false
     default: ""
+  wait:
+    description: >-
+      Set to "true" to wait for the rollout to end, and fail the step if it fails. By
+      default the step ends once the deploy is accepted and any release command has
+      passed, with the previous version serving until the rollout ends, and
+      `fpcloud app deployments` says how it ended. Set it when a later step needs the
+      new version running.
+    required: false
+    default: "false"
   api-url:
     description: "Fogpipe Cloud API base URL."
     required: false
@@ -51,6 +60,7 @@ runs:
         IMAGE: ${{ inputs.image }}
         PORT: ${{ inputs.port }}
         INGRESS: ${{ inputs.ingress }}
+        WAIT: ${{ inputs.wait }}
         RELEASE: ${{ inputs.release }}
       run: |
         set -euo pipefail
@@ -82,13 +92,18 @@ runs:
         # command still runs as a Job; an ungated one the cluster refused returns
         # 200 with the record already failed. Either way the record decides this
         # step, and the app the call returned decides when no record was written.
+        # The record then says deploying until the rollout ends, followed only when
+        # the wait input asks.
         id="$(printf '%s' "${resp}" | jq -r '.id')"
         status=""
         for _ in $(seq 1 600); do
           dep="$(curl -sS "${auth[@]}" "${base}/api/v1/apps/${id}/deployments" | jq -c '.[0] // empty')"
           status="$(printf '%s' "${dep}" | jq -r '.status // empty')"
           case "${status}" in
-            deploying|releasing) sleep 3 ;;
+            releasing) sleep 3 ;;
+            deploying)
+              [ "${WAIT}" = "true" ] || break
+              sleep 3 ;;
             failed)
               echo "::error::Deploy failed: $(printf '%s' "${dep}" | jq -r '.message // "see fpcloud app deployments"')" >&2
               logs="$(printf '%s' "${dep}" | jq -r '.release_logs // empty')"
@@ -100,9 +115,15 @@ runs:
           esac
         done
         case "${status}" in
-          deploying|releasing)
-            echo "::error::Timed out waiting for the rollout to finish." >&2
+          releasing)
+            echo "::error::Timed out waiting for the release command to finish." >&2
             exit 1 ;;
+          deploying)
+            if [ "${WAIT}" = "true" ]; then
+              echo "::error::Timed out waiting for the rollout to finish." >&2
+              exit 1
+            fi
+            echo "The rollout continues, and the previous version serves until it ends." ;;
         esac
         if [ "$(printf '%s' "${resp}" | jq -r '.status // empty')" = "failed" ]; then
           echo "::error::Deploy failed: see fpcloud app deployments." >&2
@@ -110,4 +131,4 @@ runs:
         fi
         url="$(printf '%s' "${resp}" | jq -r '.url // empty')"
         echo "url=${url}" >> "${GITHUB_OUTPUT}"
-        echo "OK: $(printf '%s' "${resp}" | jq -c '{name,status,url}')"
+        echo "OK: $(printf '%s' "${resp}" | jq -c --arg deployment "${status}" '{name,deployment:$deployment,url}')"
