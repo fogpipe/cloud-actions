@@ -77,32 +77,36 @@ runs:
           echo "::error::Deploy failed: $(printf '%s' "${resp}" | jq -r '.error // .message // .' 2>/dev/null || printf '%s' "${resp}")" >&2
           exit 1
         fi
-        # A release-gated deploy (the app has a release_command) is accepted
-        # immediately while the release command runs as a Job on the platform;
-        # follow the deployment record so a failed migration fails this step.
-        if [ -n "${id:-}" ] && [ "${id}" != "null" ] && printf '%s' "${resp}" | jq -e '(.release_command // []) | length > 0' >/dev/null 2>&1; then
-          echo "Running release command…"
-          status=""
-          for _ in $(seq 1 600); do
-            dep="$(curl -sS "${auth[@]}" "${base}/api/v1/apps/${id}/deployments" | jq -c '.[0] // empty')"
-            status="$(printf '%s' "${dep}" | jq -r '.status // empty')"
-            case "${status}" in
-              deploying|releasing|"") sleep 3 ;;
-              failed)
-                echo "::error::Release command failed: $(printf '%s' "${dep}" | jq -r '.message // "unknown"')" >&2
-                logs="$(printf '%s' "${dep}" | jq -r '.release_logs // empty')"
-                if [ -n "${logs}" ]; then
-                  printf -- '--- release command output ---\n%s\n' "${logs}" >&2
-                fi
-                exit 1 ;;
-              *) break ;;
-            esac
-          done
+        # The API answers a create or a deploy with the app and records the outcome
+        # on its newest deployment. A release-gated call returns while the release
+        # command still runs as a Job; an ungated one the cluster refused returns
+        # 200 with the record already failed. Either way the record decides this
+        # step, and the app the call returned decides when no record was written.
+        id="$(printf '%s' "${resp}" | jq -r '.id')"
+        status=""
+        for _ in $(seq 1 600); do
+          dep="$(curl -sS "${auth[@]}" "${base}/api/v1/apps/${id}/deployments" | jq -c '.[0] // empty')"
+          status="$(printf '%s' "${dep}" | jq -r '.status // empty')"
           case "${status}" in
-            deploying|releasing|"")
-              echo "::error::Timed out waiting for the release command to finish." >&2
+            deploying|releasing) sleep 3 ;;
+            failed)
+              echo "::error::Deploy failed: $(printf '%s' "${dep}" | jq -r '.message // "see fpcloud app deployments"')" >&2
+              logs="$(printf '%s' "${dep}" | jq -r '.release_logs // empty')"
+              if [ -n "${logs}" ]; then
+                printf -- '--- release command output ---\n%s\n' "${logs}" >&2
+              fi
               exit 1 ;;
+            *) break ;;
           esac
+        done
+        case "${status}" in
+          deploying|releasing)
+            echo "::error::Timed out waiting for the rollout to finish." >&2
+            exit 1 ;;
+        esac
+        if [ "$(printf '%s' "${resp}" | jq -r '.status // empty')" = "failed" ]; then
+          echo "::error::Deploy failed: see fpcloud app deployments." >&2
+          exit 1
         fi
         url="$(printf '%s' "${resp}" | jq -r '.url // empty')"
         echo "url=${url}" >> "${GITHUB_OUTPUT}"
